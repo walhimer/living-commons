@@ -581,9 +581,9 @@
   <!-- PREVIEW -->
   <section class="preview-section">
     <p class="section-label reveal">Live Work</p>
-    <div class="frame-wrap reveal">
-      <iframe src="https://walhimer.github.io/art/living-commons.html" title="Living Commons" loading="lazy" scrolling="no"></iframe>
-      <a class="frame-overlay" href="https://walhimer.github.io/art/living-commons.html" target="_blank">
+    <div class="frame-wrap reveal" id="preview-wrap" style="position:relative;width:100%;aspect-ratio:16/9;background:#000;border:1px solid var(--light);overflow:hidden;">
+      <canvas id="preview-canvas" style="position:absolute;inset:0;width:100%;height:100%;"></canvas>
+      <a class="frame-overlay" href="https://walhimer.github.io/art/living-commons.html" target="_blank" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-decoration:none;transition:background 0.25s;z-index:5;">
         <span class="overlay-btn">Open Full Work →</span>
       </a>
     </div>
@@ -880,5 +880,105 @@
     });
   </script>
 
+  <script>
+    // ── PREVIEW CANVAS ─────────────────────────────────────────────
+    (function() {
+      const wrap = document.getElementById('preview-wrap');
+      const canvas = document.getElementById('preview-canvas');
+      const ctx = canvas.getContext('2d');
+      let w, h, particles = [], lights = [], shapes = [], flowTime = 0;
+
+      function resize() {
+        w = canvas.width  = wrap.offsetWidth;
+        h = canvas.height = wrap.offsetHeight;
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      const palettes = [[330,70,95],[180,75,90],[270,70,90],[45,75,90],[210,75,90],[120,70,85]];
+
+      for (let i = 0; i < 80; i++) {
+        particles.push({ x: Math.random()*800, y: Math.random()*450,
+          px: Math.random()*800, py: Math.random()*450 });
+      }
+      for (let i = 0; i < 5; i++) {
+        let c = palettes[Math.floor(Math.random()*palettes.length)];
+        lights.push({ x: Math.random()*800, y: Math.random()*450,
+          vx: (Math.random()-0.5)*0.3, vy: (Math.random()-0.5)*0.3,
+          hue:c[0], sat:c[1], bri:c[2], born: Date.now() });
+      }
+
+      function noise(x, y, t) {
+        return (Math.sin(x*3.1+t*2.1)*Math.cos(y*2.7+t*1.7)+1)/2;
+      }
+
+      function hsbToRgb(h,s,b,a) {
+        h/=360; s/=100; b/=100;
+        let r,g,bl;
+        const i=Math.floor(h*6), f=h*6-i, p=b*(1-s), q=b*(1-f*s), t2=b*(1-(1-f)*s);
+        switch(i%6){case 0:r=b,g=t2,bl=p;break;case 1:r=q,g=b,bl=p;break;case 2:r=p,g=b,bl=t2;break;case 3:r=p,g=q,bl=b;break;case 4:r=t2,g=p,bl=b;break;case 5:r=b,g=p,bl=q;break;}
+        return `rgba(${Math.round(r*255)},${Math.round(g*255)},${Math.round(bl*255)},${a})`;
+      }
+
+      function draw() {
+        const scaleX = w/800, scaleY = h/450;
+        flowTime += 0.008;
+        ctx.fillStyle = 'rgba(0,0,5,0.12)';
+        ctx.fillRect(0,0,w,h);
+
+        // Flow
+        particles.forEach(p => {
+          p.px = p.x; p.py = p.y;
+          const ang = noise(p.x*0.004, p.y*0.004, flowTime) * Math.PI * 8;
+          p.x += Math.cos(ang)*1.5; p.y += Math.sin(ang)*1.5;
+          if(p.x<0)p.x=800; if(p.x>800)p.x=0;
+          if(p.y<0)p.y=450; if(p.y>450)p.y=0;
+          ctx.strokeStyle = `rgba(100,180,220,0.07)`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(p.px*scaleX, p.py*scaleY);
+          ctx.lineTo(p.x*scaleX, p.y*scaleY);
+          ctx.stroke();
+        });
+
+        // Connections
+        for(let i=0;i<lights.length;i++) for(let j=i+1;j<lights.length;j++) {
+          const d=Math.hypot(lights[i].x-lights[j].x,lights[i].y-lights[j].y);
+          if(d<180){
+            ctx.strokeStyle=`rgba(255,255,255,${0.07*(1-d/180)})`;
+            ctx.lineWidth=1;
+            ctx.beginPath();
+            ctx.moveTo(lights[i].x*scaleX,lights[i].y*scaleY);
+            ctx.lineTo(lights[j].x*scaleX,lights[j].y*scaleY);
+            ctx.stroke();
+          }
+        }
+
+        // Lights
+        const now = Date.now();
+        lights.forEach(l => {
+          l.x+=l.vx; l.y+=l.vy;
+          if(l.x<0||l.x>800)l.vx*=-1;
+          if(l.y<0||l.y>450)l.vy*=-1;
+          const pulse = Math.sin((now-l.born)*0.003)*0.5+0.5;
+          const glow = (45+pulse*12)*Math.min(scaleX,scaleY);
+          const grd = ctx.createRadialGradient(l.x*scaleX,l.y*scaleY,0,l.x*scaleX,l.y*scaleY,glow);
+          grd.addColorStop(0,hsbToRgb(l.hue,l.sat,l.bri,0.35));
+          grd.addColorStop(1,'rgba(0,0,0,0)');
+          ctx.fillStyle=grd;
+          ctx.beginPath();
+          ctx.arc(l.x*scaleX,l.y*scaleY,glow,0,Math.PI*2);
+          ctx.fill();
+          ctx.fillStyle=hsbToRgb(l.hue,l.sat,l.bri,0.9);
+          ctx.beginPath();
+          ctx.arc(l.x*scaleX,l.y*scaleY,(7+pulse*2)*Math.min(scaleX,scaleY),0,Math.PI*2);
+          ctx.fill();
+        });
+
+        requestAnimationFrame(draw);
+      }
+      draw();
+    })();
+  </script>
 </body>
 </html>
